@@ -16,6 +16,8 @@ import time
 import plotly.express as px
 import plotly.graph_objects as go
 
+import ediary2_helpers as ediary2
+
 from datetime import datetime, timezone
 
 def create_map_with_track_and_MOS(geo_df, add_MOS: bool = False) -> folium.Map:
@@ -170,6 +172,37 @@ def retrieve_location_data(db_file, table_name = 'locationEventData'):
 
     return df
 
+
+def retrieve_run_data(db_file, table_name = 'run'):
+    """Retrieve participant run information from .db file and returns pd.DataFrame"""
+
+    # Connect to the SQLite database
+    conn = sqlite3.connect(db_file)
+    
+    # Create a cursor object to interact with the database
+    cursor = conn.cursor()
+
+    cursor.execute(f'SELECT * FROM {table_name} ')# \
+                    #f'WHERE platformId = {1} AND ' \
+                    #f'sensorId = {900}')
+    
+    # Fetch all rows from the table
+    data = cursor.fetchall()
+    
+    # Close the connection
+    conn.close()
+
+    df = pd.DataFrame(data, columns=["id", "start", "end", "study", 
+                                     "name", "birthYear", "gender", "email", "note", "configurationID", 
+                                     "appVersion", "androidSdk", "device"])
+    
+    df['timestamp_start_utc'] = df['start'].apply(convert_to_utc)
+    df['timestamp_end_utc'] = df['end'].apply(convert_to_utc)
+
+    return df[["id", "name", "study", "timestamp_start_utc", "timestamp_end_utc", 
+                "birthYear", "gender", "email", "note", "start", "end", 
+                "configurationID", "appVersion", "androidSdk", "device"]]
+
 # Function to print the schema of the database
 def print_schema(db_file):
     """Retrieve all tables in .db file and print their schema"""
@@ -221,7 +254,13 @@ if uploaded_db_file is not None:
         
         st.sidebar.title("Select Participant and display information")
 
+        run_data = retrieve_run_data(os.path.join(path, uploaded_db_file.name))
+        run_data["timestamp_start_utc"] = pd.to_datetime(run_data["timestamp_start_utc"])
+        run_data["timestamp_end_utc"] = pd.to_datetime(run_data["timestamp_end_utc"])
+        st.write(run_data)
+
         location_data = retrieve_location_data(os.path.join(path, uploaded_db_file.name))
+        location_data["timestamp_utc"] = pd.to_datetime(location_data["timestamp_utc"])
 
         participant_id_selection = st.sidebar.selectbox(
                     "Select participant ID:",
@@ -231,13 +270,41 @@ if uploaded_db_file is not None:
 
         st.write("You selected:", participant_id_selection)
 
+        st.header("Participant Run information")
+        participant_run_data = run_data[run_data["id"] == participant_id_selection].reset_index()
+        st.write(participant_run_data)
+
+        run_duration = participant_run_data["timestamp_end_utc"][0] - participant_run_data["timestamp_start_utc"][0]
+        st.write("Run duration: ", run_duration)
+        st.sidebar.write("Run duration in seconds: ", run_duration.seconds)
+        
+
         ######### Optional eDiary Tables Display #########
         
         #preped_data = st.sidebar.checkbox("Show/Hide preprocessed data:")
         location_data_display = st.sidebar.checkbox("Display Locations:")
-        feedback_data_display = st.sidebar.checkbox("Show/Hide Information contained in Feedback Table:")
+        feedback_data_display = st.sidebar.checkbox("Display Feedback:")
+        sensor_data_display = st.sidebar.checkbox("Display Sensor Data:")
 
         
+        breathing_wave_amplitude = ediary2.retrieve_all_bwa_data(os.path.join(path, uploaded_db_file.name), table_name='doubleEventData')
+        breathing_wave_amplitude["timestamp_utc"] = pd.to_datetime(breathing_wave_amplitude["timestamp_utc"])
+
+        posture = ediary2.retrieve_all_posture_data(os.path.join(path, uploaded_db_file.name), table_name = 'longEventData')
+        posture["timestamp_utc"] = pd.to_datetime(posture["timestamp_utc"])
+
+        heart_rate = ediary2.retrieve_all_heart_rate_data(os.path.join(path, uploaded_db_file.name), table_name="longEventData")
+        heart_rate["timestamp_utc"] = pd.to_datetime(heart_rate["timestamp_utc"])
+
+        resp_rate = ediary2.retrieve_all_resp_rate_data(os.path.join(path, uploaded_db_file.name), table_name="doubleEventData")
+        resp_rate["timestamp_utc"] = pd.to_datetime(resp_rate["timestamp_utc"])
+
+        ecg_amplitude = ediary2.retrieve_all_ecg_amplitude_data(os.path.join(path, uploaded_db_file.name), table_name='doubleEventData')
+        ecg_amplitude["timestamp_utc"] = pd.to_datetime(ecg_amplitude["timestamp_utc"])
+
+        ecg_noise = ediary2.retrieve_all_ecg_noise_data(os.path.join(path, uploaded_db_file.name), table_name='doubleEventData')
+        ecg_noise["timestamp_utc"] = pd.to_datetime(ecg_noise["timestamp_utc"])
+
         #st.write(location_data[location_data["runID"] == participant_id_selection])
 
 
@@ -253,6 +320,82 @@ if uploaded_db_file is not None:
 
             map = create_map_with_track_and_MOS(location_data[location_data["runID"] == participant_id_selection])
             st_map = st_folium(map, width=1000)
+
+            #speed_fig = px.line(location_data[location_data["runID"] == participant_id_selection], 
+            #        x = "timestamp_utc", y = "altitude", title = "Speed over time")
+            
+            #st.ploty_chart(speed_fig)
+
+        if sensor_data_display:
+
+            worn_status = ediary2.retrieve_all_worn_status_data(os.path.join(path, uploaded_db_file.name), table_name="longEventData")
+            #st.write(worn_status)
+
+            color_status = ediary2.retrieve_all_color_data(os.path.join(path, uploaded_db_file.name), table_name="longEventData")
+            #st.write(color_status)
+
+            battery_status = ediary2.retrieve_all_battery_data(os.path.join(path, uploaded_db_file.name), table_name="longEventData")
+            #st.write(battery_status)
+
+            vector_mag = ediary2.retrieve_all_vector_mag_units_data(os.path.join(path, uploaded_db_file.name), table_name="doubleEventData")
+            #st.write(vector_mag)
+
+            acc_min = ediary2.retrieve_all_acc_min_data(os.path.join(path, uploaded_db_file.name), table_name="doubleEventData")
+            #st.write(acc_min)
+
+            acc_peak = ediary2.retrieve_all_acc_peak_data(os.path.join(path, uploaded_db_file.name), table_name="doubleEventData")
+            #st.write(acc_peak)
+
+
+            ### BREATHING WAVE AMPLITUDE
+            st.write("Breathing Wave Amplitude:")
+            st.write("Nunber of recordings for BWA: ", len(breathing_wave_amplitude[breathing_wave_amplitude["runID"] == participant_id_selection]))
+            st.write("Sampling Frequency (# of recordings / total seconds) is: ", len(breathing_wave_amplitude[breathing_wave_amplitude["runID"] == participant_id_selection]) / run_duration.seconds)
+            # plot data
+            bwa_fig = px.line(breathing_wave_amplitude[breathing_wave_amplitude["runID"] == participant_id_selection], 
+                    x = "timestamp_utc", y = "BWA", title = "Breathing wave amplitude")
+            st.plotly_chart(bwa_fig)
+
+            ### POSTURE
+            st.write("Posture:")
+            st.write("Nunber of recordings for posture: ", len([posture[posture["runID"] == participant_id_selection]]))
+            st.write("Sampling Frequency (# of recordings / total seconds) is: ", len(posture[posture["runID"] == participant_id_selection]) / run_duration.seconds)
+            posture_fig = px.line(posture[posture["runID"] == participant_id_selection],
+                                   x = "timestamp_utc", y = "posture", title = "Posture")
+            st.plotly_chart(posture_fig)
+
+            ### HEART RATE
+            st.write("Heart Rate:")
+            st.write("Nunber of recordings for heart rate: ", len(heart_rate[heart_rate["runID"] == participant_id_selection]))
+            st.write("Sampling Frequency (# of recordings / total seconds) is: ", len(heart_rate[heart_rate["runID"] == participant_id_selection]) / run_duration.seconds)
+            heart_rate_fig = px.line(heart_rate[heart_rate["runID"] == participant_id_selection],
+                                      x = "timestamp_utc", y = "heart_rate", title = "Heart Rate")
+            st.plotly_chart(heart_rate_fig)
+
+            ### RESPIRATION RATE
+            st.write("Respiration Rate:")
+            st.write("Nunber of recordings for respiration rate: ", len(resp_rate[resp_rate["runID"] == participant_id_selection]))
+            st.write("Sampling Frequency (# of recordings / total seconds) is: ", len(resp_rate[resp_rate["runID"] == participant_id_selection]) / run_duration.seconds)
+            resp_rate_fig = px.line(resp_rate[resp_rate["runID"] == participant_id_selection], 
+                    x = "timestamp_utc", y = "resp_rate", title = "Respiration Rate")
+            st.plotly_chart(resp_rate_fig)
+
+            ### ECG AMPLITUDE
+            st.write("ECG Amplitude:")
+            st.write("Nunber of recordings for ECG amplitude: ", len(ecg_amplitude[ecg_amplitude["runID"] == participant_id_selection]))
+            st.write("Sampling Frequency (# of recordings / total seconds) is: ", len(ecg_amplitude[ecg_amplitude["runID"] == participant_id_selection]) / run_duration.seconds)
+            ecg_amplitude_fig = px.line(ecg_amplitude[ecg_amplitude["runID"] == participant_id_selection],
+                     x = "timestamp_utc", y = "ecg_ampl", title = "ECG Amplitude")
+            st.plotly_chart(ecg_amplitude_fig)
+
+            ### ECG NOISE
+            st.write("ECG Noise:")
+            st.write("Nunber of recordings for ECG noise: ", len(ecg_noise[ecg_noise["runID"] == participant_id_selection]))
+            st.write("Sampling Frequency (# of recordings / total seconds) is: ", len(ecg_noise[ecg_noise["runID"] == participant_id_selection]) / run_duration.seconds)
+            ecg_noise_fig = px.line(ecg_noise[ecg_noise["runID"] == participant_id_selection],
+                     x = "timestamp_utc", y = "ecg_noise", title = "ECG Noise")
+            st.plotly_chart(ecg_noise_fig)
+
 
     except:
         pass
