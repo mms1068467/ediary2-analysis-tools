@@ -313,7 +313,7 @@ if uploaded_db_file is not None:
         schema = print_schema(os.path.join(path, uploaded_db_file.name))
 
         if feedback_data_display:
-            st.write("Feedback data: ", feedback_data)
+            st.write("Feedback data: ", feedback_data[feedback_data["runID"] == participant_id_selection])
         
         if location_data_display:
             st.write("Raw locations table Data: ", location_data[location_data["runID"] == participant_id_selection])
